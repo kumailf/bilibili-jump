@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>比利空降助手</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>比利空降助手</h1>
+      <p class="sub">自动跳过片尾版权填充</p>
+    </header>
+
+    <label class="row switch-row">
+      <span>启用</span>
+      <input type="checkbox" id="enabled" />
+    </label>
+
+    <p class="hint">开启后自动识别并跳过；进度条上会标出跳过段。关闭即完全停用。</p>
+    <script type="module" src="./popup.ts"></script>
+  </body>
+</html>

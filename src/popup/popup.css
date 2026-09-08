@@ -1,0 +1,57 @@
+:root {
+  color-scheme: light;
+  --ink: #1a1a1a;
+  --muted: #6b6560;
+  --accent: #00a1d6;
+  --line: #e4ddd3;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+body {
+  margin: 0;
+  width: 260px;
+  padding: 14px 16px 16px;
+  background: linear-gradient(165deg, #faf7f2 0%, #eef5f8 100%);
+  color: var(--ink);
+}
+
+header {
+  margin-bottom: 14px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.sub {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.switch-row input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 18px;
+  height: 18px;
+}
+
+.hint {
+  margin: 12px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.45;
+}
