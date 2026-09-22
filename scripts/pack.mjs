@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { zipSync } from "./zip-dir.mjs";
 
@@ -12,8 +12,14 @@ if (!existsSync(dist)) {
   process.exit(1);
 }
 
-rmSync(outDir, { recursive: true, force: true });
-mkdirSync(stage, { recursive: true });
+mkdirSync(outDir, { recursive: true });
+if (existsSync(stage)) {
+  for (const ent of readdirSync(stage)) {
+    rmSync(join(stage, ent), { recursive: true, force: true });
+  }
+} else {
+  mkdirSync(stage, { recursive: true });
+}
 cpSync(dist, stage, { recursive: true });
 
 const zipPath = join(outDir, "bilibili-jump-chrome.zip");

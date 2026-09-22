@@ -5,7 +5,7 @@ export default defineManifest({
   manifest_version: 3,
   name: "比利空降助手",
   short_name: "比利空降",
-  description: "自动识别并跳过 B 站片尾版权规避填充片段，进度条标注可跳过区间。",
+  description: "自动识别并跳过 B 站片尾无意义片段，进度条标注可跳过区间。",
   version: pkg.version,
   icons: {
     "16": "public/icons/icon16.png",

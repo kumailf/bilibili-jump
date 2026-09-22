@@ -13,7 +13,7 @@ export const DEFAULT_SETTINGS: JumpSettings = {
 export const DETECT_DEFAULTS = {
   minFillerSeconds: 60,
   seekToleranceSeconds: 2,
-  minVideoSeconds: 480,
+  minVideoSeconds: 960,
   deltaThreshold: 0.035,
   minConfidence: 0.72,
   /** 实际播放累计秒数后再分析，避开开播抢缓冲 */

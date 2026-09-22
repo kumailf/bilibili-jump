@@ -1,6 +1,6 @@
 /**
- * 仅缓存已确认的跳过段 [start, end]（秒），控制体积。
- * 低置信 / 无填充：不落盘。
+ * 仅缓存 HIGH 确认的跳过段 [start, end]（秒），控制体积。
+ * MED / 低置信 / 无填充：不落盘。
  */
 
 const STORE_KEY = "biliJumpSegments";
@@ -23,14 +23,17 @@ function storage(): chrome.storage.StorageArea {
 }
 
 export function segmentKey(bvid: string, page: number, duration: number): string {
-  return `${bvid}|p${page}|d${Math.round(duration)}`;
+  return `v9|${bvid}|p${page}|d${Math.round(duration)}`;
 }
 
 export function parseBilibiliPage(): { bvid: string; page: number } | null {
-  const m = location.pathname.match(/\/video\/(BV[\w]+)/i);
-  if (!m) return null;
-  const page = Number(new URLSearchParams(location.search).get("p") || "1");
-  return { bvid: m[1]!, page: Number.isFinite(page) && page > 0 ? page : 1 };
+  const q = new URLSearchParams(location.search);
+  const path = location.pathname.match(/\/video\/(BV[\w]+)/i);
+  const fromQuery = q.get("bvid") ?? "";
+  const bvid = path?.[1] ?? (fromQuery.match(/^BV[\w]+/i)?.[0] ?? null);
+  if (!bvid) return null;
+  const page = Number(q.get("p") || "1");
+  return { bvid, page: Number.isFinite(page) && page > 0 ? page : 1 };
 }
 
 async function readStore(): Promise<SegmentStore> {
