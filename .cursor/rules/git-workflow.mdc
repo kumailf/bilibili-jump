@@ -1,0 +1,12 @@
+---
+description: bilibili-jump 直接推 master，不做功能分支/PR 流程
+alwaysApply: true
+---
+
+# Git 工作流
+
+本仓库**不需要分支管理**：
+
+- 改动在 `master` 上完成；用户要求推送时，直接 commit 并 `git push origin master`
+- **不要**默认开功能分支、不要默认建 PR
+- 仅当用户明确要求开分支 / 开 PR 时才例外
