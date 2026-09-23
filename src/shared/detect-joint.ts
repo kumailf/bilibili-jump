@@ -49,6 +49,12 @@ const STATIC_RISE_FULL = 0.1;
 const UNLIKE_SLACK = 0.045;
 const UNLIKE_MIN_LEN = 240;
 const UNLIKE_NEAR = 45;
+/** 接片尾的 unlike 段：起点后短窗 selfSim 够高才视为真正静态垫片（风光空镜） */
+const PAD_SELF_LOOK = 90;
+const PAD_SELF_MIN = 0.93;
+const PAD_SELF_RISE = 0.06;
+/** 段末距 coverageEnd 小于此值视为「接到片尾」的 unlike */
+const UNLIKE_TO_END_SLACK = 90;
 const ZCR_PRE_MIN = 0.04;
 const ZCR_POST_MAX = 0.032;
 const ZCR_DROP_ON = 0.018;
@@ -122,9 +128,11 @@ function recoveredVisual(tiles: Tile[], t: number, cover: number, body: FrameFea
   return false;
 }
 
-function unlikeStarts(tiles: Tile[], body: FrameFeatures, bodyMean: number, cover: number): number[] {
+type UnlikeSeg = { t0: number; t1: number };
+
+function unlikeSegments(tiles: Tile[], body: FrameFeatures, bodyMean: number, cover: number): UnlikeSeg[] {
   const flags = tiles.map((x) => featureSimilarity(x.fp, body) <= bodyMean - UNLIKE_SLACK);
-  const starts: number[] = [];
+  const segs: UnlikeSeg[] = [];
   let i = 0;
   const n = flags.length;
   while (i < n) {
@@ -148,11 +156,42 @@ function unlikeStarts(tiles: Tile[], body: FrameFeatures, bodyMean: number, cove
     const t0 = tiles[i]!.t;
     const t1 = tiles[lastHit]!.t;
     if (t1 - t0 >= UNLIKE_MIN_LEN && !recoveredVisual(tiles, t0, cover, body, bodyMean)) {
-      starts.push(t0);
+      segs.push({ t0, t1 });
     }
     i = lastHit + 1;
   }
-  return starts;
+  return segs;
+}
+
+function meanSelfSim(tiles: Tile[], t0: number, t1: number): number | null {
+  return visWindow(tiles, t0, t1, (x) => x.selfSim);
+}
+
+/** 起点后短窗已是高 selfSim 静态垫片（真·片尾空镜），而非仍在切镜的后期正文。 */
+function looksLikeStaticPad(tiles: Tile[], t: number): boolean {
+  const post = meanSelfSim(tiles, t, t + PAD_SELF_LOOK);
+  return post != null && post >= PAD_SELF_MIN;
+}
+
+function isStaticPadOnset(tiles: Tile[], t: number): boolean {
+  const pre = meanSelfSim(tiles, t - PAD_SELF_LOOK, t);
+  const post = meanSelfSim(tiles, t, t + PAD_SELF_LOOK);
+  return pre != null && post != null && post >= PAD_SELF_MIN && post - pre >= PAD_SELF_RISE;
+}
+
+/**
+ * 接到片尾的长 unlike 常把「中后段正文域偏移」与真正风光垫片并成一段。
+ * 若最早 snap 处还不是静态垫片，则前移到段内最早的静态垫片起点。
+ */
+function refineUnlikeToEndStart(tiles: Tile[], seg: UnlikeSeg, cover: number, provisional: number): number {
+  if (cover - seg.t1 > UNLIKE_TO_END_SLACK) return seg.t0;
+  if (looksLikeStaticPad(tiles, provisional)) return seg.t0;
+  const hi = Math.min(seg.t1, cover - UNLIKE_MIN_LEN);
+  for (const x of tiles) {
+    if (x.t < seg.t0 || x.t > hi) continue;
+    if (isStaticPadOnset(tiles, x.t)) return x.t;
+  }
+  return seg.t0;
 }
 
 function snapUnlikeStart(tiles: Tile[], body: FrameFeatures, t0: number): number {
@@ -170,6 +209,24 @@ function snapUnlikeStart(tiles: Tile[], body: FrameFeatures, t0: number): number
     }
   }
   return best >= 0.08 ? hit : t0;
+}
+
+/** 解析 unlike 锚点：to-end 段先按静态垫片收紧，再局部 snap。 */
+function resolveUnlikeAnchors(
+  tiles: Tile[],
+  body: FrameFeatures,
+  bodyMean: number,
+  cover: number,
+): { starts: number[]; snapped: number | null; padAnchored: boolean } {
+  const segs = unlikeSegments(tiles, body, bodyMean, cover);
+  if (!segs.length) return { starts: [], snapped: null, padAnchored: false };
+  const starts: number[] = [];
+  for (const seg of segs) {
+    const provisional = snapUnlikeStart(tiles, body, seg.t0);
+    starts.push(refineUnlikeToEndStart(tiles, seg, cover, provisional));
+  }
+  const snapped = snapUnlikeStart(tiles, body, Math.min(...starts));
+  return { starts, snapped, padAnchored: looksLikeStaticPad(tiles, snapped) };
 }
 
 function findEncodeOnset(index: number[] | undefined, duration: number): number | null {
@@ -253,6 +310,8 @@ interface Ctx {
   bodyMean: number;
   unlikeStarts: number[];
   unlikeSnapped: number | null;
+  /** 当前 snap 处已是静态垫片：选池优先围着该锚点，避免早段正文域偏移的强 appear 抢赢 */
+  padAnchored: boolean;
   encodeOnset: number | null;
 }
 
@@ -263,21 +322,20 @@ function prepareCtx(input: JointDetectInput): Ctx {
   let bodyMean = 0;
   let unlikeStarts: number[] = [];
   let unlikeSnapped: number | null = null;
+  let padAnchored = false;
   if (tiles.length) {
     const proto = bodyProto(tiles, input.duration);
     if (proto) {
       body = proto.body;
       bodyMean = proto.bodyMean;
-      unlikeStarts = unlikeStartsFn(tiles, body, bodyMean, cover);
-      if (unlikeStarts.length) unlikeSnapped = snapUnlikeStart(tiles, body, Math.min(...unlikeStarts));
+      const resolved = resolveUnlikeAnchors(tiles, body, bodyMean, cover);
+      unlikeStarts = resolved.starts;
+      unlikeSnapped = resolved.snapped;
+      padAnchored = resolved.padAnchored;
     }
   }
   const encodeOnset = findEncodeOnset(input.keyframeTimes, input.duration);
-  return { tiles, body, bodyMean, unlikeStarts, unlikeSnapped, encodeOnset };
-}
-
-function unlikeStartsFn(tiles: Tile[], body: FrameFeatures, bodyMean: number, cover: number): number[] {
-  return unlikeStarts(tiles, body, bodyMean, cover);
+  return { tiles, body, bodyMean, unlikeStarts, unlikeSnapped, padAnchored, encodeOnset };
 }
 
 function scoreAt(input: JointDetectInput, t: number, ctx: Ctx): Hit {
@@ -538,10 +596,18 @@ export function detectJoint(input: JointDetectInput): JointDetectResult {
   if (!usable.length) return empty("置信不足，弃权", "LOW");
 
   // 有画面锚点时：丢掉「弱 appear + 远离所有 unlike/encode」的候选，避免早段音频假阳性压过后期真切点。
-  // 不把选池锁死在 earliest unlikeSnapped（多段 unlike 时会过拟合到错误前段）。
+  // 已有静态垫片 snap 时：选池围着锚点，避免「正文中后域偏移」的强 appear 抢在垫片之前。
   const anchored = (t: number) => visualAligned(t, ctx);
-  const prefer =
-    hasVisual && hasVisualAnchor(ctx, duration)
+  const nearPad =
+    ctx.padAnchored && ctx.unlikeSnapped != null
+      ? usable.filter(
+          (c) =>
+            anchored(c.t) || Math.abs(c.t - ctx.unlikeSnapped!) <= VISUAL_ANCHOR_ALIGN,
+        )
+      : [];
+  const prefer = nearPad.length
+    ? nearPad
+    : hasVisual && hasVisualAnchor(ctx, duration)
       ? usable.filter((c) => anchored(c.t) || c.appear >= APPEAR_STRONG)
       : usable;
   const poolBase = prefer.length ? prefer : usable;
