@@ -13,9 +13,19 @@ const API_HEADERS: Record<string, string> = {
 
 const FETCH_MS = 12_000;
 
+/** 雪碧图 API 常给 http:// 或 //；页面是 HTTPS，必须统一成 https 避免 Mixed Content。 */
 function absUrl(u: string): string {
-  if (u.startsWith("//")) return `https:${u}`;
-  return u;
+  const raw = u.trim();
+  if (!raw) return raw;
+  try {
+    const parsed = new URL(raw.startsWith("//") ? `https:${raw}` : raw);
+    if (parsed.protocol === "http:") parsed.protocol = "https:";
+    return parsed.href;
+  } catch {
+    if (raw.startsWith("//")) return `https:${raw}`;
+    if (raw.startsWith("http://")) return `https://${raw.slice("http://".length)}`;
+    return raw;
+  }
 }
 
 async function fetchJson(url: string): Promise<unknown | null> {
