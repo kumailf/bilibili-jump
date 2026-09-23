@@ -23,8 +23,8 @@ function storage(): chrome.storage.StorageArea {
 }
 
 export function segmentKey(bvid: string, page: number, duration: number): string {
-  // v10：to-end unlike 按静态垫片收紧起点，避免中后段正文域偏移被当成片尾
-  return `v10|${bvid}|p${page}|d${Math.round(duration)}`;
+  // v11：多段 unlike 时 snap 优先 to-end 垫片，避免中段域偏移抢锚
+  return `v11|${bvid}|p${page}|d${Math.round(duration)}`;
 }
 
 export function parseBilibiliPage(): { bvid: string; page: number } | null {

@@ -221,11 +221,21 @@ function resolveUnlikeAnchors(
   const segs = unlikeSegments(tiles, body, bodyMean, cover);
   if (!segs.length) return { starts: [], snapped: null, padAnchored: false };
   const starts: number[] = [];
+  /** 接到片尾的 refined 起点 */
+  let toEndStart: number | null = null;
   for (const seg of segs) {
     const provisional = snapUnlikeStart(tiles, body, seg.t0);
-    starts.push(refineUnlikeToEndStart(tiles, seg, cover, provisional));
+    const refined = refineUnlikeToEndStart(tiles, seg, cover, provisional);
+    starts.push(refined);
+    if (cover - seg.t1 <= UNLIKE_TO_END_SLACK) {
+      if (toEndStart == null || refined < toEndStart) toEndStart = refined;
+    }
   }
-  const snapped = snapUnlikeStart(tiles, body, Math.min(...starts));
+  // 仅当 to-end 已是静态垫片时以其为 snap（多段中段域偏移 + 真垫片）。
+  // 非垫片的片尾 stub（长片中后另有主 unlike）仍回退最早 unlike，避免锁到末段噪声。
+  const toEndPad = toEndStart != null && looksLikeStaticPad(tiles, toEndStart);
+  const snapBase = toEndPad ? toEndStart! : Math.min(...starts);
+  const snapped = snapUnlikeStart(tiles, body, snapBase);
   return { starts, snapped, padAnchored: looksLikeStaticPad(tiles, snapped) };
 }
 
@@ -373,7 +383,9 @@ function scoreAt(input: JointDetectInput, t: number, ctx: Ctx): Hit {
       bodyPart = 0;
       unlikePart = 0;
     }
-    if (ctx.unlikeStarts.length && t > Math.min(...ctx.unlikeStarts) + UNLIKE_NEAR) {
+    // 用 snap（优先 to-end）清静态，勿用最早 mid-unlike，否则片尾垫片段 static 会被误清
+    const staticClearAt = ctx.unlikeSnapped ?? (ctx.unlikeStarts.length ? Math.min(...ctx.unlikeStarts) : null);
+    if (staticClearAt != null && t > staticClearAt + UNLIKE_NEAR) {
       staticPart = 0;
     }
     appear = Math.min(1, bodyPart + staticPart + unlikePart);
@@ -596,14 +608,11 @@ export function detectJoint(input: JointDetectInput): JointDetectResult {
   if (!usable.length) return empty("置信不足，弃权", "LOW");
 
   // 有画面锚点时：丢掉「弱 appear + 远离所有 unlike/encode」的候选，避免早段音频假阳性压过后期真切点。
-  // 已有静态垫片 snap 时：选池围着锚点，避免「正文中后域偏移」的强 appear 抢在垫片之前。
+  // 已有静态垫片 snap 时：选池只围 to-end 垫片锚点（勿用全部 unlikeStarts，中段域偏移会漏进池）。
   const anchored = (t: number) => visualAligned(t, ctx);
   const nearPad =
     ctx.padAnchored && ctx.unlikeSnapped != null
-      ? usable.filter(
-          (c) =>
-            anchored(c.t) || Math.abs(c.t - ctx.unlikeSnapped!) <= VISUAL_ANCHOR_ALIGN,
-        )
+      ? usable.filter((c) => Math.abs(c.t - ctx.unlikeSnapped!) <= VISUAL_ANCHOR_ALIGN)
       : [];
   const prefer = nearPad.length
     ? nearPad
