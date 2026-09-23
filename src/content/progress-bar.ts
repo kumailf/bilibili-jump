@@ -5,8 +5,19 @@ const SEG_CLASS = "bili-jump-preview-seg";
 /** 绿色标段；画在进度条上方，不盖住轨道。 */
 const SEG_COLOR = "rgba(34, 197, 94, 0.92)";
 
+const CTRL_WRAP_SELECTORS = [
+  ".bpx-player-control-wrap",
+  ".bilibili-player-video-control-wrap",
+];
+
 let paintRetryTimer = 0;
 let pendingPaint: { segment: SkipSegment; duration: number } | null = null;
+
+/** 同步跳过条与控制栏显隐 */
+let visibilityObserver: MutationObserver | null = null;
+let resizeObserver: ResizeObserver | null = null;
+let observedProgress: HTMLElement | null = null;
+let observedChrome: HTMLElement | null = null;
 
 function clock(sec: number): string {
   const t = Math.max(0, Math.floor(sec));
@@ -48,6 +59,87 @@ function findProgressParent(): HTMLElement | null {
   return candidates[0]!;
 }
 
+function findControlWrap(from: HTMLElement): HTMLElement | null {
+  for (const sel of CTRL_WRAP_SELECTORS) {
+    const el = from.closest(sel);
+    if (el instanceof HTMLElement) return el;
+  }
+  return null;
+}
+
+/**
+ * B 站控制栏显隐：常见为容器 `[data-ctrl-hidden]`，
+ * 或 `.bpx-player-control-wrap` 的 opacity / 高度收起。
+ */
+function isControlChromeVisible(progressParent: HTMLElement): boolean {
+  const hiddenHost = progressParent.closest("[data-ctrl-hidden]");
+  if (hiddenHost?.getAttribute("data-ctrl-hidden") === "true") return false;
+
+  const wrap = findControlWrap(progressParent);
+  if (wrap) {
+    const cs = getComputedStyle(wrap);
+    if (cs.display === "none" || cs.visibility === "hidden") return false;
+    if (parseFloat(cs.opacity) < 0.05) return false;
+    if (wrap.getBoundingClientRect().height < 8) return false;
+  }
+
+  // 轨道被收成 0 高时，overflow:visible 仍会让上方绝对定位标段露出
+  if (progressParent.getBoundingClientRect().height < 1) return false;
+
+  return true;
+}
+
+function applySegVisibility(bar: HTMLElement, progressParent: HTMLElement) {
+  const show = isControlChromeVisible(progressParent);
+  bar.style.visibility = show ? "visible" : "hidden";
+  bar.style.opacity = show ? "1" : "0";
+}
+
+function stopVisibilitySync() {
+  visibilityObserver?.disconnect();
+  visibilityObserver = null;
+  resizeObserver?.disconnect();
+  resizeObserver = null;
+  observedProgress = null;
+  observedChrome = null;
+}
+
+function ensureVisibilitySync(bar: HTMLElement, progressParent: HTMLElement) {
+  const wrap = findControlWrap(progressParent);
+  const attrHost =
+    (progressParent.closest("[data-ctrl-hidden]") as HTMLElement | null) ??
+    (progressParent.closest(".bpx-player-container") as HTMLElement | null) ??
+    (document.querySelector("#bilibili-player") as HTMLElement | null);
+
+  const sync = () => {
+    if (!bar.isConnected || !progressParent.isConnected) {
+      stopVisibilitySync();
+      return;
+    }
+    applySegVisibility(bar, progressParent);
+  };
+
+  if (observedProgress !== progressParent || observedChrome !== (wrap ?? attrHost)) {
+    stopVisibilitySync();
+    observedProgress = progressParent;
+    observedChrome = wrap ?? attrHost;
+
+    visibilityObserver = new MutationObserver(sync);
+    const observeOpts: MutationObserverInit = {
+      attributes: true,
+      attributeFilter: ["data-ctrl-hidden", "class", "style"],
+    };
+    if (attrHost) visibilityObserver.observe(attrHost, observeOpts);
+    if (wrap && wrap !== attrHost) visibilityObserver.observe(wrap, observeOpts);
+
+    resizeObserver = new ResizeObserver(sync);
+    resizeObserver.observe(progressParent);
+    if (wrap) resizeObserver.observe(wrap);
+  }
+
+  sync();
+}
+
 function paintOn(parent: HTMLElement, segment: SkipSegment, duration: number) {
   let bar = parent.querySelector(`:scope > .${SEG_CLASS}`) as HTMLElement | null;
   if (!bar) {
@@ -67,6 +159,7 @@ function paintOn(parent: HTMLElement, segment: SkipSegment, duration: number) {
     parent.style.overflow = "visible";
   }
   const trackH = Math.max(2, parent.getBoundingClientRect().height || 3);
+  const show = isControlChromeVisible(parent);
   bar.style.cssText = [
     "position:absolute",
     "top:auto",
@@ -79,7 +172,10 @@ function paintOn(parent: HTMLElement, segment: SkipSegment, duration: number) {
     "z-index:40",
     "border-radius:2px",
     "box-shadow:0 0 0 1px rgba(0,0,0,0.25)",
+    `visibility:${show ? "visible" : "hidden"}`,
+    `opacity:${show ? "1" : "0"}`,
   ].join(";");
+  ensureVisibilitySync(bar, parent);
 }
 
 function schedulePaintRetry(segment: SkipSegment, duration: number) {
@@ -144,5 +240,6 @@ export function clearProgressSegment() {
     window.clearInterval(paintRetryTimer);
     paintRetryTimer = 0;
   }
+  stopVisibilitySync();
   document.querySelectorAll(`.${SEG_CLASS}`).forEach((el) => el.remove());
 }
